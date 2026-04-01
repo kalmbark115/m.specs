@@ -4,6 +4,7 @@ import folium
 from streamlit_folium import st_folium
 import numpy as np
 import time
+import os
 
 # ==========================================
 # 1. PAGE CONFIGURATION & THEME
@@ -28,6 +29,7 @@ if "last_click" not in st.session_state: st.session_state.last_click = None
 
 if "show_audit" not in st.session_state: st.session_state.show_audit = False
 if "show_service" not in st.session_state: st.session_state.show_service = False
+if "show_credits" not in st.session_state: st.session_state.show_credits = False
 if "svc_stage" not in st.session_state: st.session_state.svc_stage = "idle"
 if "show_alert" not in st.session_state: st.session_state.show_alert = False
 if "selected_contractor" not in st.session_state: st.session_state.selected_contractor = ""
@@ -42,10 +44,21 @@ def toggle_audit():
         else:
             st.session_state.show_audit = True
             st.session_state.show_service = False
+            st.session_state.show_credits = False
             st.session_state.show_alert = False
     else:
         st.session_state.show_alert = True
         st.session_state.show_service = False
+        st.session_state.show_credits = False
+
+def toggle_credits():
+    if st.session_state.show_credits:
+        st.session_state.show_credits = False
+    else:
+        st.session_state.show_credits = True
+        st.session_state.show_audit = False
+        st.session_state.show_service = False
+        st.session_state.show_alert = False
 
 def open_service():
     if st.session_state.area > 0:
@@ -55,14 +68,16 @@ def open_service():
         else:
             st.session_state.show_service = True
             st.session_state.show_audit = False
+            st.session_state.show_credits = False
             st.session_state.show_alert = False
             st.session_state.svc_stage = "scanning"
     else:
         st.session_state.show_alert = True
         st.session_state.show_audit = False
+        st.session_state.show_credits = False
 
 def close_all_popups():
-    st.session_state.show_audit = False; st.session_state.show_service = False; st.session_state.svc_stage = "idle"
+    st.session_state.show_audit = False; st.session_state.show_service = False; st.session_state.show_credits = False; st.session_state.svc_stage = "idle"
 
 def reset_view():
     close_all_popups(); st.session_state.show_alert = False; st.session_state.points = []; st.session_state.area = 0
@@ -75,7 +90,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 t = {
     "en": {
-        "btn_lang": "عربي", "title_top": "RIYADH", "title_bot": "SOLAR AI", "load": "Building Scale Profile",
+        "btn_lang": "عربي", "btn_cred": "Team", "title_top": "RIYADH", "title_bot": "SOLAR AI", "load": "Building Scale Profile",
         "maint": "Maintenance Strategy", "tech": "Solar Panel Tech (W)", "reset": "RESET MAP BOUNDARY", "area": "Rooftop Area",
         "units": "Panel Units", "opt_loads": ["Small Villa", "Standard Villa", "Large Estate", "Palace"], "opt_maint": ["Weekly (Elite)", "Monthly (Standard)", "Lazy Owner"],
         "annual": "Annual", "monthly": "Monthly", "overview": "Overview", "audit": "Investment Audit", "service": "Book Service",
@@ -85,10 +100,10 @@ t = {
         "service_title": "SERVICE DISPATCH", "scanning": "Pinging Local Grid...", "request": "SEND REQUEST",
         "receipt_title": "PROJECT SUMMARY", "confirm": "Confirm & Submit", "cancel": "Cancel", "selected": "Selected Contractor",
         "success": "DISPATCH SUCCESSFUL", "success_sub": "A technician from your selected contractor will contact you shortly.",
-        "finalizing": "Finalizing Dispatch..."
+        "finalizing": "Finalizing Dispatch...", "team": "PROJECT TEAM", "khalid": "Khalid Moh. Almubarak", "albaraa": "Albaraa Moh. Yousef"
     },
     "ar": {
-        "btn_lang": "EN", "title_top": "الرياض", "title_bot": "للذكاء الشمسي", "load": "حجم المبنى", "maint": "استراتيجية الصيانة",
+        "btn_lang": "EN", "btn_cred": "فريق", "title_top": "الرياض", "title_bot": "للذكاء الشمسي", "load": "حجم المبنى", "maint": "استراتيجية الصيانة",
         "tech": "قدرة اللوح الشمسي (واط)", "reset": "إعادة تعيين الخريطة", "area": "مساحة السطح", "units": "عدد الألواح",
         "opt_loads": ["فيلا صغيرة", "فيلا قياسية", "قصر صغير", "قصر كبير"], "opt_maint": ["أسبوعي (ممتاز)", "شهري (قياسي)", "بدون صيانة"],
         "annual": "سنوي", "monthly": "شهري", "overview": "المخطط العام", "audit": "التدقيق الاستثماري", "service": "حجز الخدمة",
@@ -98,7 +113,7 @@ t = {
         "service_title": "مركز الخدمة", "scanning": "جاري البحث عن مقاولين...", "request": "إرسال طلب",
         "receipt_title": "ملخص المشروع", "confirm": "تأكيد وإرسال الطلب", "cancel": "إلغاء", "selected": "المقاول المختار",
         "success": "تم إرسال الطلب بنجاح", "success_sub": "سيتواصل معك فني متخصص قريباً.",
-        "finalizing": "جاري تأكيد الإرسال..."
+        "finalizing": "جاري تأكيد الإرسال...", "team": "فريق المشروع", "khalid": "خالد محمد المبارك", "albaraa": "البراء محمد يوسف"
     }
 }
 loc = t[st.session_state.lang]
@@ -110,7 +125,207 @@ def calculate_area(pts):
     return 0.5 * np.abs(np.dot(lats, np.roll(lngs, 1)) - np.dot(lngs, np.roll(lats, 1)))
 
 # ==========================================
-# 3. EARLY STATE PROCESSING
+# 3. UNIFIED CSS INJECTION (PRE-LOADED)
+# ==========================================
+is_ar = st.session_state.lang == "ar"
+
+# Pull dynamic labels up here so CSS can grab them directly
+view_label = loc['monthly'] if st.session_state.time_view == 'Annual' else loc['annual']
+lbl_o = "Home" if not is_ar else "رئيسية"
+lbl_a = "Audit" if not is_ar else "تقرير"
+lbl_b = "Book" if not is_ar else "حجز"
+
+unified_css = f"""
+<style>
+    /* TYPOGRAPHY & APP BASE */
+    :root {{
+        --f-btn: {'2.8vw' if is_ar else '2.6vw'};
+        --f-pri: {'3.5vw' if is_ar else '3.2vw'};
+        --f-hud-lbl: {'2.2vw' if is_ar else '2.0vw'};
+        --f-hud-val: {'4.5vw' if is_ar else '4.0vw'};
+        --f-hud-val-dark: {'5.0vw' if is_ar else '4.5vw'};
+    }}
+   
+    ::-webkit-scrollbar {{ width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }}
+    html, body, [data-testid="stAppViewContainer"], .block-container {{ overflow: hidden !important; max-height: 100vh !important; }}
+    [data-testid="stStatusWidget"], [data-testid="stDecoration"] {{ display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important; }}
+    :root {{ color-scheme: dark; }}
+    body, .stApp, [data-testid="stAppViewContainer"] {{ background-color: #0A0A0A !important; color: white !important; }}
+    .block-container {{ padding: 0 !important; max-width: 100vw !important; overflow: hidden; }}
+   
+    iframe {{ position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; border: none !important; }}
+    div[data-testid="stFolium"] {{ position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; }}
+
+    .stButton > button {{ outline: none !important; }}
+    .stButton > button:focus {{ outline: none !important; box-shadow: none !important; color: inherit !important; }}
+
+    [data-testid="stHeader"] {{
+        background-color: #0A0A0A !important; border-bottom: 2px solid #D4AF37 !important; height: 115px !important;
+        position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; z-index: 999 !important;
+    }}
+    [data-testid="stHeader"] > div {{ display: none !important; }}
+    [data-testid="stHeader"]::before {{
+        content: "{loc['title_top']}"; position: absolute; right: 4vw; top: 12px;
+        color: #D4AF37 !important; font-family: 'Times New Roman', serif !important; font-weight: 300 !important; letter-spacing: 1vw !important; font-size: 6vw !important; line-height: 1 !important; pointer-events: none;
+    }}
+    [data-testid="stHeader"]::after {{
+        content: "{loc['title_bot']}"; position: absolute; right: 4vw; top: 38px;
+        color: #FFFFFF !important; font-family: 'Times New Roman', serif !important; font-weight: 300 !important; letter-spacing: 0.5vw !important; font-size: 4vw !important; line-height: 1 !important; pointer-events: none;
+    }}
+
+    /* =========================================================
+       THE MATHEMATICAL TELEPORT MATRIX
+       ========================================================= */
+
+    /* Collapse the Streamlit wrapper completely */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#mobile-nav-anchor) {{
+        height: 0px !important; margin: 0 !important; padding: 0 !important; overflow: visible !important;
+    }}
+    span[id$="-anchor"] {{ display: none !important; }}
+
+    /* Teleport every specific button wrapper to fixed positioning */
+    div.element-container:has(span[id$="-anchor"]) + div.element-container div[data-testid="stButton"] {{
+        position: fixed !important; z-index: 99999 !important; margin: 0 !important; padding: 0 !important;
+    }}
+
+    /* Strip the button design to create the seamless blend */
+    div.element-container:has(span[id$="-anchor"]) + div.element-container button[kind="secondary"] {{
+        background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 0 !important;
+        height: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; outline: none !important;
+        display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important;
+    }}
+
+    /* --- NUCLEAR ANTI-TWITCH: HIDE NATIVE STREAMLIT TEXT COMPLETELY --- */
+    div.element-container:has(span[id$="-anchor"]) + div.element-container button[kind="secondary"] p,
+    div.element-container:has(span[id$="-anchor"]) + div.element-container button[kind="secondary"] div[data-testid="stMarkdownContainer"] {{
+        display: none !important; opacity: 0 !important; visibility: hidden !important; font-size: 0 !important;
+    }}
+
+    /* --- INJECT TEXT VIA CSS PSEUDO-ELEMENTS (IMMUNE TO REACT DOM TWITCHING) --- */
+    div.element-container:has(span[id$="-anchor"]) + div.element-container button[kind="secondary"]::after {{
+        display: flex !important; flex-direction: column !important; justify-content: center !important; align-items: center !important;
+        width: 100% !important; text-align: center !important; white-space: pre-wrap !important; line-height: 1.2 !important;
+        pointer-events: none !important;
+    }}
+
+    /* --- MATH COORDINATES: ROW 1 (Top Left) - Bigger & Spaced --- */
+    div.element-container:has(span#btn-lang-anchor) + div.element-container div[data-testid="stButton"] {{ top: 12px !important; left: 3vw !important; width: 15vw !important; height: 42px !important; }}
+    div.element-container:has(span#btn-time-anchor) + div.element-container div[data-testid="stButton"] {{ top: 12px !important; left: 22vw !important; width: 15vw !important; height: 42px !important; }}
+    div.element-container:has(span#btn-cred-anchor) + div.element-container div[data-testid="stButton"] {{ top: 12px !important; left: 41vw !important; width: 15vw !important; height: 42px !important; }}
+
+    /* Pseudo Text Injection for Row 1 */
+    div.element-container:has(span#btn-lang-anchor) + div.element-container button::after {{ content: "🌐\\A {loc['btn_lang']}"; font-size: 3.5vw !important; color: #ccc !important; font-weight: normal !important; }}
+    div.element-container:has(span#btn-time-anchor) + div.element-container button::after {{ content: "🔄\\A {view_label}"; font-size: 3.5vw !important; color: #ccc !important; font-weight: normal !important; }}
+    div.element-container:has(span#btn-cred-anchor) + div.element-container button::after {{ content: "👥\\A {loc['btn_cred']}"; font-size: 3.5vw !important; color: #ccc !important; font-weight: normal !important; }}
+
+
+    /* --- MATH COORDINATES: ROW 2 (Bottom Full Width) --- */
+    div.element-container:has(span#btn-book-anchor) + div.element-container div[data-testid="stButton"] {{ top: 60px !important; left: 0vw !important; width: 33.333vw !important; height: 55px !important; }}
+    div.element-container:has(span#btn-audit-anchor) + div.element-container div[data-testid="stButton"] {{ top: 60px !important; left: 33.333vw !important; width: 33.333vw !important; height: 55px !important; }}
+    div.element-container:has(span#btn-home-anchor) + div.element-container div[data-testid="stButton"] {{ top: 60px !important; left: 66.666vw !important; width: 33.333vw !important; height: 55px !important; }}
+
+    /* Pseudo Text Injection for Row 2 (Audit is now white) */
+    div.element-container:has(span#btn-book-anchor) + div.element-container button::after {{ content: "🛠️\\A {lbl_b}"; font-size: 4.2vw !important; color: white !important; font-weight: bold !important; }}
+    div.element-container:has(span#btn-audit-anchor) + div.element-container button::after {{ content: "📊\\A {lbl_a}"; font-size: 4.2vw !important; color: white !important; font-weight: bold !important; }}
+    div.element-container:has(span#btn-home-anchor) + div.element-container button::after {{ content: "🏠\\A {lbl_o}"; font-size: 4.2vw !important; color: white !important; font-weight: bold !important; }}
+
+    [data-testid="stSidebar"], [data-testid="collapsedControl"] {{ display: none !important; }}
+
+    /* =========================================================
+       THE FLAWLESS VECTOR COGWHEEL
+       ========================================================= */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) {{
+        position: fixed !important; top: 125px !important; left: 3vw !important; width: 40vw !important; min-width: 130px !important; max-width: 180px !important; z-index: 99998 !important; background: transparent !important; padding: 0 !important; pointer-events: none !important;
+    }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) * {{ pointer-events: auto !important; }}
+    div.element-container:has(span#settings-master) {{ display: none !important; }}
+    div.element-container:has(span#settings-master) + div.element-container {{
+        position: fixed !important; top: 125px !important; left: 3vw !important; z-index: 999999 !important; width: 45px !important; height: 45px !important;
+    }}
+    div.element-container:has(span#settings-master) + div.element-container label {{
+        background: rgba(15, 15, 15, 0.95) !important; border: 2px solid #D4AF37 !important; border-radius: 50% !important;
+        width: 45px !important; height: 45px !important; min-height: 45px !important;
+        display: flex !important; justify-content: center !important; align-items: center !important;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; backdrop-filter: blur(5px) !important; cursor: pointer !important; padding: 0 !important; margin: 0 !important; position: relative !important;
+    }}
+    div.element-container:has(span#settings-master) + div.element-container label > div,
+    div.element-container:has(span#settings-master) + div.element-container label > span {{
+        position: absolute !important; left: -9999px !important; opacity: 0 !important; width: 0 !important; height: 0 !important; overflow: hidden !important; pointer-events: none !important; display: none !important;
+    }}
+    div.element-container:has(span#settings-master) + div.element-container label::after {{
+        content: "" !important; position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23D4AF37'><path d='M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z'/></svg>") !important;
+        background-size: 24px 24px !important; background-repeat: no-repeat !important; background-position: center !important; transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important; pointer-events: none !important; transform-origin: center center !important;
+    }}
+    div.element-container:has(span#settings-master) + div.element-container:has(input[type="checkbox"]:checked) label::after {{ transform: rotate(180deg) !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) div[data-testid="stVerticalBlock"]:has(div#floating-controls) {{
+        margin-top: 60px !important; width: 100% !important; background: transparent !important; padding: 0 !important; transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease !important; transform: translateX(-150%) !important; opacity: 0 !important; pointer-events: none !important;
+    }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master):has(input[type="checkbox"]:checked) div[data-testid="stVerticalBlock"]:has(div#floating-controls) {{ transform: translateX(0) !important; opacity: 1 !important; pointer-events: auto !important; }}
+    div[data-testid="stVerticalBlock"]:has(div#floating-controls) .stSelectbox {{ background-color: rgba(15, 15, 15, 0.9) !important; border: 2px solid #D4AF37 !important; border-radius: 12px !important; padding: 4px 8px !important; margin-bottom: 8px !important; box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; backdrop-filter: blur(5px); }}
+    div[data-testid="stVerticalBlock"]:has(div#floating-controls) label {{ color: #D4AF37 !important; font-weight: bold; text-shadow: 1px 1px 3px black !important; margin-bottom: 2px !important; font-size: var(--f-hud-lbl) !important; }}
+    div[data-baseweb="select"] > div {{ background-color: transparent !important; border: none !important; color: white !important; font-size: var(--f-btn) !important; height: auto !important; min-height: 34px !important; padding-top: 2px !important; padding-bottom: 2px !important; }}
+    div[data-baseweb="select"] span {{ line-height: 1.2 !important; white-space: normal !important; }}
+    div[data-testid="stVerticalBlock"]:has(div#floating-controls) button[kind="primary"] {{ background: rgba(15, 15, 15, 0.9) !important; color: #D4AF37 !important; border: 2px solid #D4AF37 !important; border-radius: 12px !important; width: 100% !important; height: 35px !important; box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; transition: 0.2s !important; display: flex !important; align-items: center !important; justify-content: center !important; outline: none !important; backdrop-filter: blur(5px); margin-top: 5px !important; }}
+    div[data-testid="stVerticalBlock"]:has(div#floating-controls) button[kind="primary"] p {{ font-size: var(--f-btn) !important; font-weight: bold !important; margin: 0 !important; color: inherit !important; white-space: normal !important; text-align: center !important; line-height: 1.1 !important; }}
+
+    /* =========================================================
+       THE DASHBOARD GRID HUD & SMART ALERT
+       ========================================================= */
+    .smart-alert {{ position: fixed; top: 135px; left: 50%; transform: translateX(-50%); background: rgba(200, 50, 50, 0.95); border: 1px solid #ff4b4b; color: white; padding: 1vh 4vw; border-radius: 8px; text-align: center; font-size: 3vw; font-weight: bold; z-index: 999999; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 90vw; }}
+    .results-hud {{ position: fixed; bottom: 15px; left: 2vw; right: 2vw; z-index: 9999; display: grid; grid-template-columns: 1fr 1fr; gap: 2vw; padding-bottom: 10px; }}
+    .hud-card {{ background-color: rgba(10, 10, 10, 0.95); border: 1px solid rgba(212, 175, 55, 0.4); border-radius: 12px; width: 100%; height: 8vh; min-height: 60px; box-shadow: 0px 5px 15px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 0 1vw; }}
+    .highlight-card {{ background-color: #D4AF37; border: 1px solid #FFFFFF; box-shadow: 0px 5px 20px rgba(212, 175, 55, 0.5); grid-column: span 2; height: 9vh; min-height: 70px; }}
+    .hud-label {{ color: #D4AF37; font-size: var(--f-hud-lbl); font-weight: bold; text-transform: uppercase; margin-bottom: 1px; text-align: center; }}
+    .hud-value {{ color: white; font-size: var(--f-hud-val); font-weight: bold; text-align: center; white-space: nowrap; line-height: 1; }}
+    .hud-label-dark {{ color: black; font-size: var(--f-hud-lbl); font-weight: 900; text-transform: uppercase; margin-bottom: 1px; text-align: center; line-height: 1; }}
+    .hud-value-dark {{ color: black; font-size: var(--f-hud-val-dark); font-weight: 900; text-align: center; white-space: nowrap; line-height: 1; }}
+
+    /* =========================================================
+       MODALS CSS
+       ========================================================= */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) {{
+        position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; width: 90vw !important; background: rgba(15, 15, 15, 0.98) !important; border: 2px solid #D4AF37 !important; border-radius: 16px !important; padding: 4vh 4vw !important; z-index: 9999999 !important; box-shadow: 0px 20px 50px rgba(0,0,0,0.9) !important; max-height: 85vh !important; overflow-y: auto !important;
+    }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) {{ position: absolute !important; top: 2vh !important; right: 2vw !important; width: auto !important; z-index: 999999 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) button[kind="secondary"] {{ background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; height: auto !important; outline: none !important; color: #D4AF37 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) button[kind="secondary"] p {{ font-size: 8vw !important; font-weight: 300 !important; line-height: 1 !important; margin: 0 !important; color: inherit !important; transition: 0.2s !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="tertiary"] {{ background: transparent !important; color: transparent !important; border: none !important; box-shadow: none !important; height: 12vh !important; width: 100% !important; margin-top: -14vh !important; margin-bottom: 2vh !important; position: relative !important; z-index: 9999 !important; cursor: pointer !important; display: block !important; outline: none !important; color: transparent !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type {{ display: flex !important; flex-direction: row !important; justify-content: center !important; gap: 4vw !important; margin: 3vh 0 0 0 !important; width: 100% !important; padding: 0 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type > div[data-testid="column"] {{ width: 42% !important; min-width: 42% !important; max-width: 42% !important; flex: 0 0 42% !important; display: block !important; padding: 0 !important; margin: 0 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button[kind="secondary"], div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"] {{ font-weight: bold !important; font-size: var(--f-pri) !important; border-radius: 10px !important; height: 6vh !important; min-height: 40px !important; width: 100% !important; display: flex !important; align-items: center !important; justify-content: center !important; outline: none !important; margin: 0 !important; box-sizing: border-box !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button p {{ white-space: nowrap !important; margin: 0 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button[kind="secondary"] {{ background: #222 !important; color: white !important; border: 1px solid rgba(212,175,55,0.4) !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"] {{ background-color: #D4AF37 !important; color: #0A0A0A !important; border: none !important; box-shadow: 0 4px 10px rgba(0,0,0,0.5) !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"]:disabled {{ background-color: #333 !important; color: #777 !important; border: 1px solid #444 !important; box-shadow: none !important; }}
+
+    /* CREDITS NATIVE GRID - FIX COLLAPSING IMAGES */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) div[data-testid="stHorizontalBlock"] {{ display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; gap: 3vw !important; margin-bottom: 1.5vh !important; background: rgba(255,255,255,0.05) !important; border-left: 3px solid #D4AF37 !important; border-radius: 10px !important; padding: 1vh 2vw !important; box-shadow: 0 4px 10px rgba(0,0,0,0.4) !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) {{ width: 65px !important; min-width: 65px !important; max-width: 65px !important; flex: 0 0 65px !important; display: flex !important; align-items: center !important; justify-content: center !important; padding: 0 !important; margin: 0 !important; }}
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(2) {{ width: calc(100% - 65px) !important; flex: 1 1 auto !important; display: flex !important; align-items: center !important; padding: 0 !important; margin: 0 !important; }}
+   
+    /* SAFEGUARD: Force Streamlit's inner div wrappers to respect dimensions so image doesn't vanish */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) div.element-container,
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(1) div[data-testid="stImage"] {{
+        width: 100% !important; display: flex !important; justify-content: center !important; align-items: center !important; flex-shrink: 0 !important;
+    }}
+
+    /* Sledgehammer sizing on the actual Image Tag */
+    div[data-testid="stVerticalBlock"]:has(> div.element-container span#credits-grid) img {{
+        width: 55px !important; height: 55px !important; min-width: 55px !important; min-height: 55px !important; max-width: 55px !important; max-height: 55px !important; border-radius: 50% !important; border: 2px solid #D4AF37 !important; object-fit: cover !important; display: block !important; visibility: visible !important; opacity: 1 !important;
+    }}
+   
+    .scanner-ring {{ width: 15vw; height: 15vw; border: 3px solid #D4AF37; border-radius: 50%; margin: 5vh auto 3vh auto; animation: pulse 1.5s infinite; opacity: 0; }}
+    @keyframes pulse {{ 0% {{ transform: scale(0.6); opacity: 0; }} 50% {{ opacity: 1; }} 100% {{ transform: scale(1.2); opacity: 0; }} }}
+    .checkmark-circle {{ width: 18vw; height: 18vw; border: 3px solid #D4AF37; border-radius: 50%; margin: 3vh auto 2vh auto; display: flex; align-items: center; justify-content: center; animation: scale-in 0.5s ease-out; }}
+    @keyframes scale-in {{ 0% {{ transform: scale(0); }} 100% {{ transform: scale(1); }} }}
+</style>
+"""
+st.markdown(unified_css, unsafe_allow_html=True)
+
+
+# ==========================================
+# 4. EARLY STATE PROCESSING
 # ==========================================
 if "main_map" in st.session_state and st.session_state.main_map and st.session_state.main_map.get("last_clicked"):
     new_p = (st.session_state.main_map["last_clicked"]["lat"], st.session_state.main_map["last_clicked"]["lng"])
@@ -121,33 +336,8 @@ if "main_map" in st.session_state and st.session_state.main_map and st.session_s
 st.session_state.area = calculate_area(st.session_state.points)
 
 # ==========================================
-# 4. MOBILE TYPOGRAPHY ENGINE
+# 5. MOBILE PAGE ARCHITECTURE
 # ==========================================
-is_ar = st.session_state.lang == "ar"
-
-css_vars = f"""
-<style>
-    :root {{
-        --f-btn: {'2.8vw' if is_ar else '2.6vw'};
-        --f-pri: {'3.5vw' if is_ar else '3.2vw'};
-        --f-hud-lbl: {'3.5vw' if is_ar else '3.2vw'};
-        --f-hud-val: {'6.0vw' if is_ar else '5.5vw'};
-        --f-hud-val-dark: {'7.0vw' if is_ar else '6.5vw'};
-    }}
-   
-    [data-testid="stHeader"]::before {{
-        content: "{loc['title_top']}";
-        position: absolute; right: 4vw; top: 12px;
-        color: #D4AF37 !important; font-family: 'Times New Roman', serif !important; font-weight: 300 !important; letter-spacing: 1vw !important; font-size: 6vw !important; line-height: 1 !important; pointer-events: none;
-    }}
-    [data-testid="stHeader"]::after {{
-        content: "{loc['title_bot']}";
-        position: absolute; right: 4vw; top: 38px;
-        color: #FFFFFF !important; font-family: 'Times New Roman', serif !important; font-weight: 300 !important; letter-spacing: 0.5vw !important; font-size: 4vw !important; line-height: 1 !important; pointer-events: none;
-    }}
-</style>
-"""
-st.markdown(css_vars, unsafe_allow_html=True)
 
 f_title = "6vw" if is_ar else "5vw"
 f_lbl = "3vw" if is_ar else "2.8vw"
@@ -159,191 +349,29 @@ f_card_dsc = "2.5vw" if is_ar else "2.3vw"
 f_succ_tit = "6vw" if is_ar else "5.5vw"
 f_succ_sub = "3.5vw" if is_ar else "3vw"
 
-
-# ==========================================
-# 5. MOBILE BASE CSS
-# ==========================================
-st.markdown("""
-<style>
-    ::-webkit-scrollbar { width: 0px !important; height: 0px !important; background: transparent !important; display: none !important; }
-    html, body, [data-testid="stAppViewContainer"], .block-container { overflow: hidden !important; max-height: 100vh !important; }
-   
-    [data-testid="stStatusWidget"], [data-testid="stDecoration"] {
-        display: none !important; visibility: hidden !important; opacity: 0 !important; height: 0 !important;
-    }
-
-    :root { color-scheme: dark; }
-    body, .stApp, [data-testid="stAppViewContainer"] { background-color: #0A0A0A !important; color: white !important; }
-    .block-container { padding: 0 !important; max-width: 100vw !important; overflow: hidden; }
-   
-    iframe { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; border: none !important; }
-    div[data-testid="stFolium"] { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 0 !important; }
-
-    .stButton > button { outline: none !important; }
-    .stButton > button:focus { outline: none !important; box-shadow: none !important; color: inherit !important; }
-
-    [data-testid="stHeader"] {
-        background-color: #0A0A0A !important;
-        border-bottom: 2px solid #D4AF37 !important;
-        height: 115px !important;
-        position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important;
-        z-index: 999 !important;
-    }
-    [data-testid="stHeader"] > div { display: none !important; }
-
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) {
-        position: fixed !important; top: 60px !important; left: 2vw !important; width: 96vw !important; z-index: 99999 !important; pointer-events: none !important;
-        display: grid !important;
-        grid-template-columns: repeat(5, 1fr) !important;
-        gap: 0px !important;
-        align-items: center !important;
-        opacity: 1 !important; transform: translateZ(0) !important; backface-visibility: hidden !important; will-change: transform !important;
-    }
-    span#mobile-nav-marker { display: none !important; }
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) * { pointer-events: auto !important; }
-   
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) > div[data-testid="column"] {
-        width: 100% !important; min-width: 0 !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; height: 100% !important;
-    }
-   
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) button[kind="secondary"] {
-        background: transparent !important; color: white !important; border: none !important; box-shadow: none !important; border-radius: 0px !important; height: 46px !important; margin: 0 !important; padding: 0px !important; width: 100% !important; transition: 0.2s !important; display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; outline: none !important;
-    }
-   
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) button[kind="secondary"] p {
-        margin: 0 !important; line-height: 1.1 !important; color: inherit !important; font-size: var(--f-btn) !important; font-weight: bold !important; text-align: center !important; white-space: pre-wrap !important; width: 100%;
-    }
-   
-    div[data-testid="stHorizontalBlock"]:has(span#mobile-nav-marker) > div[data-testid="column"]:nth-child(1) button[kind="secondary"] {
-        background: transparent !important; color: #D4AF37 !important; border: none !important;
-    }
-
-    [data-testid="stSidebar"], [data-testid="collapsedControl"] { display: none !important; }
-
-
-    /* =========================================================
-       THE FLAWLESS VECTOR COGWHEEL
-       ========================================================= */
-    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) {
-        position: fixed !important; top: 125px !important; left: 3vw !important; width: 40vw !important; min-width: 130px !important; max-width: 180px !important; z-index: 99998 !important; background: transparent !important; padding: 0 !important; pointer-events: none !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) * {
-        pointer-events: auto !important;
-    }
-
-    div.element-container:has(span#settings-master) { display: none !important; }
-
-    div.element-container:has(span#settings-master) + div.element-container {
-        position: fixed !important; top: 125px !important; left: 3vw !important; z-index: 999999 !important;
-        width: 45px !important; height: 45px !important;
-    }
-
-    div.element-container:has(span#settings-master) + div.element-container label {
-        background: rgba(15, 15, 15, 0.95) !important; border: 2px solid #D4AF37 !important; border-radius: 50% !important;
-        width: 45px !important; height: 45px !important; min-height: 45px !important;
-        display: flex !important; justify-content: center !important; align-items: center !important;
-        box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; backdrop-filter: blur(5px) !important;
-        cursor: pointer !important; padding: 0 !important; margin: 0 !important;
-        position: relative !important;
-    }
-   
-    div.element-container:has(span#settings-master) + div.element-container label > div,
-    div.element-container:has(span#settings-master) + div.element-container label > span {
-        position: absolute !important; left: -9999px !important; opacity: 0 !important; width: 0 !important; height: 0 !important; overflow: hidden !important; pointer-events: none !important; display: none !important;
-    }
-   
-    div.element-container:has(span#settings-master) + div.element-container label::after {
-        content: "" !important;
-        position: absolute !important; top: 0 !important; left: 0 !important;
-        width: 100% !important; height: 100% !important;
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23D4AF37'><path d='M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z'/></svg>") !important;
-        background-size: 24px 24px !important;
-        background-repeat: no-repeat !important;
-        background-position: center !important;
-        transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        pointer-events: none !important;
-        transform-origin: center center !important;
-    }
-
-    div.element-container:has(span#settings-master) + div.element-container:has(input[type="checkbox"]:checked) label::after {
-        transform: rotate(180deg) !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master) div[data-testid="stVerticalBlock"]:has(div#floating-controls) {
-        margin-top: 60px !important; width: 100% !important; background: transparent !important; padding: 0 !important;
-        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease !important;
-        transform: translateX(-150%) !important; opacity: 0 !important; pointer-events: none !important;
-    }
-   
-    div[data-testid="stVerticalBlock"]:has(> div.element-container span#settings-master):has(input[type="checkbox"]:checked) div[data-testid="stVerticalBlock"]:has(div#floating-controls) {
-        transform: translateX(0) !important; opacity: 1 !important; pointer-events: auto !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(div#floating-controls) .stSelectbox {
-        background-color: rgba(15, 15, 15, 0.9) !important; border: 2px solid #D4AF37 !important; border-radius: 12px !important; padding: 4px 8px !important; margin-bottom: 8px !important; box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; backdrop-filter: blur(5px);
-    }
-    div[data-testid="stVerticalBlock"]:has(div#floating-controls) label { color: #D4AF37 !important; font-weight: bold; text-shadow: 1px 1px 3px black !important; margin-bottom: 2px !important; font-size: var(--f-hud-lbl) !important; }
-    div[data-baseweb="select"] > div { background-color: transparent !important; border: none !important; color: white !important; font-size: var(--f-btn) !important; height: auto !important; min-height: 34px !important; padding-top: 2px !important; padding-bottom: 2px !important; }
-    div[data-baseweb="select"] span { line-height: 1.2 !important; white-space: normal !important; }
-
-    div[data-testid="stVerticalBlock"]:has(div#floating-controls) button[kind="primary"] {
-        background: rgba(15, 15, 15, 0.9) !important; color: #D4AF37 !important; border: 2px solid #D4AF37 !important; border-radius: 12px !important; width: 100% !important; height: 35px !important; box-shadow: 0px 4px 10px rgba(0,0,0,0.8) !important; transition: 0.2s !important; display: flex !important; align-items: center !important; justify-content: center !important; outline: none !important; backdrop-filter: blur(5px); margin-top: 5px !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(div#floating-controls) button[kind="primary"] p { font-size: var(--f-btn) !important; font-weight: bold !important; margin: 0 !important; color: inherit !important; white-space: normal !important; text-align: center !important; line-height: 1.1 !important; }
-
-    /* =========================================================
-       THE SCALED DASHBOARD GRID HUD (2x2 + 1)
-       ========================================================= */
-    .smart-alert { position: fixed; top: 135px; left: 50%; transform: translateX(-50%); background: rgba(200, 50, 50, 0.95); border: 1px solid #ff4b4b; color: white; padding: 1vh 4vw; border-radius: 8px; text-align: center; font-size: 3vw; font-weight: bold; z-index: 999999; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 90vw; }
-   
-    .results-hud {
-        position: fixed; bottom: 15px; left: 2vw; right: 2vw; z-index: 9999;
-        display: grid; grid-template-columns: 1fr 1fr; gap: 2vw;
-        padding-bottom: 10px;
-    }
-   
-    .hud-card {
-        background-color: rgba(10, 10, 10, 0.95); border: 1px solid rgba(212, 175, 55, 0.4);
-        border-radius: 12px; width: 100%; height: 8vh; min-height: 60px; /* Snug fit */
-        box-shadow: 0px 5px 15px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 0 1vw;
-    }
-   
-    .highlight-card {
-        background-color: #D4AF37; border: 1px solid #FFFFFF; box-shadow: 0px 5px 20px rgba(212, 175, 55, 0.5);
-        grid-column: span 2;
-        height: 9vh; min-height: 70px;
-    }
-   
-    /* THE SCALING FIX: Larger fonts to fill the bubbles */
-    .hud-label { color: #D4AF37; font-size: var(--f-hud-lbl); font-weight: bold; text-transform: uppercase; margin-bottom: 1px; text-align: center; }
-    .hud-value { color: white; font-size: var(--f-hud-val); font-weight: bold; text-align: center; white-space: nowrap; line-height: 1; }
-   
-    .hud-label-dark { color: black; font-size: var(--f-hud-lbl); font-weight: 900; text-transform: uppercase; margin-bottom: 1px; text-align: center; line-height: 1; }
-    .hud-value-dark { color: black; font-size: var(--f-hud-val-dark); font-weight: 900; text-align: center; white-space: nowrap; line-height: 1; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ==========================================
-# 6. MOBILE PAGE ARCHITECTURE
-# ==========================================
+# THE ABSOLUTE POSITIONING CONTAINER
 with st.container():
-    nav_cols = st.columns([1, 1, 1, 1, 1])
+    st.markdown("<span id='mobile-nav-anchor'></span>", unsafe_allow_html=True)
    
-    nav_cols[0].markdown("<span id='mobile-nav-marker'></span>", unsafe_allow_html=True)
+    # ROW 1 Anchors & Blank Buttons (Text injected via CSS)
+    st.markdown("<span id='btn-lang-anchor'></span>", unsafe_allow_html=True)
+    st.button(" ", on_click=toggle_language, type="secondary", use_container_width=True, key="h_lang")
    
-    nav_cols[0].button(f"🌐\n{loc['btn_lang']}", on_click=toggle_language, type="secondary", use_container_width=True, key="h_lang")
+    st.markdown("<span id='btn-time-anchor'></span>", unsafe_allow_html=True)
+    st.button("  ", on_click=toggle_time, type="secondary", use_container_width=True, key="h_time")
    
-    view_label = loc['monthly'] if st.session_state.time_view == 'Annual' else loc['annual']
+    st.markdown("<span id='btn-cred-anchor'></span>", unsafe_allow_html=True)
+    st.button("   ", on_click=toggle_credits, type="secondary", use_container_width=True, key="h_cred")
    
-    lbl_b = "Book" if not is_ar else "حجز"
-    lbl_a = "Audit" if not is_ar else "تقرير"
-    lbl_o = "Home" if not is_ar else "رئيسية"
+    # ROW 2 Anchors & Blank Buttons (Text injected via CSS)
+    st.markdown("<span id='btn-book-anchor'></span>", unsafe_allow_html=True)
+    st.button("    ", on_click=open_service, type="secondary", use_container_width=True, key="h_srv")
    
-    nav_cols[1].button(f"🔄\n{view_label}", on_click=toggle_time, type="secondary", use_container_width=True, key="h_time")
-    nav_cols[2].button(f"🛠️\n{lbl_b}", on_click=open_service, type="secondary", use_container_width=True, key="h_srv")
-    nav_cols[3].button(f"📊\n{lbl_a}", on_click=toggle_audit, type="secondary", use_container_width=True, key="h_aud")
-    nav_cols[4].button(f"🏠\n{lbl_o}", on_click=reset_view, type="secondary", use_container_width=True, key="h_ovv")
+    st.markdown("<span id='btn-audit-anchor'></span>", unsafe_allow_html=True)
+    st.button("     ", on_click=toggle_audit, type="secondary", use_container_width=True, key="h_aud")
+   
+    st.markdown("<span id='btn-home-anchor'></span>", unsafe_allow_html=True)
+    st.button("      ", on_click=reset_view, type="secondary", use_container_width=True, key="h_ovv")
 
 # THE COG COMPONENT
 with st.container():
@@ -366,7 +394,7 @@ if st.session_state.show_alert:
     st.markdown(f'<div class="smart-alert">{loc["alert"]}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 7. THE MAP ENGINE
+# 6. THE MAP ENGINE
 # ==========================================
 
 m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.map_zoom, tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', attr='Google', zoom_control=False, max_zoom=22)
@@ -424,81 +452,42 @@ if st.session_state.area > 0:
 
 
 # ==========================================
-# 8. MOBILE MODAL ENGINE CSS
-# ==========================================
-modal_css = """
-<style>
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) {
-        position: fixed !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
-        width: 90vw !important; background: rgba(15, 15, 15, 0.98) !important; border: 2px solid #D4AF37 !important;
-        border-radius: 16px !important; padding: 4vh 4vw !important; z-index: 9999999 !important; box-shadow: 0px 20px 50px rgba(0,0,0,0.9) !important; max-height: 85vh !important; overflow-y: auto !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) {
-        position: absolute !important; top: 2vh !important; right: 2vw !important; width: auto !important; z-index: 999999 !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) button[kind="secondary"] {
-        background: transparent !important; border: none !important; box-shadow: none !important; padding: 0 !important; height: auto !important; outline: none !important; color: #D4AF37 !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) > div.element-container:has(> div.stButton > button[kind="secondary"]) button[kind="secondary"] p {
-        font-size: 8vw !important; font-weight: 300 !important; line-height: 1 !important; margin: 0 !important; color: inherit !important; transition: 0.2s !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="tertiary"] {
-        background: transparent !important; color: transparent !important; border: none !important; box-shadow: none !important;
-        height: 12vh !important; width: 100% !important; margin-top: -14vh !important; margin-bottom: 2vh !important; position: relative !important; z-index: 9999 !important; cursor: pointer !important; display: block !important; outline: none !important; color: transparent !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type {
-        display: flex !important;
-        flex-direction: row !important;
-        justify-content: center !important;
-        gap: 4vw !important;
-        margin: 3vh 0 0 0 !important;
-        width: 100% !important;
-        padding: 0 !important;
-    }
-   
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type > div[data-testid="column"] {
-        width: 42% !important;
-        min-width: 42% !important;
-        max-width: 42% !important;
-        flex: 0 0 42% !important;
-        display: block !important;
-        padding: 0 !important; margin: 0 !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button[kind="secondary"],
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"] {
-        font-weight: bold !important; font-size: var(--f-pri) !important; border-radius: 10px !important; height: 6vh !important; min-height: 40px !important; width: 100% !important; display: flex !important; align-items: center !important; justify-content: center !important; outline: none !important; margin: 0 !important;
-        box-sizing: border-box !important;
-    }
-   
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button p {
-        white-space: nowrap !important; margin: 0 !important;
-    }
-
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) div[data-testid="stHorizontalBlock"]:last-of-type button[kind="secondary"] {
-        background: #222 !important; color: white !important; border: 1px solid rgba(212,175,55,0.4) !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"] {
-        background-color: #D4AF37 !important; color: #0A0A0A !important; border: none !important; box-shadow: 0 4px 10px rgba(0,0,0,0.5) !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(> div.element-container div#modal-marker) button[kind="primary"]:disabled { background-color: #333 !important; color: #777 !important; border: 1px solid #444 !important; box-shadow: none !important; }
-
-    .scanner-ring { width: 15vw; height: 15vw; border: 3px solid #D4AF37; border-radius: 50%; margin: 5vh auto 3vh auto; animation: pulse 1.5s infinite; opacity: 0; }
-    @keyframes pulse { 0% { transform: scale(0.6); opacity: 0; } 50% { opacity: 1; } 100% { transform: scale(1.2); opacity: 0; } }
-    .checkmark-circle { width: 18vw; height: 18vw; border: 3px solid #D4AF37; border-radius: 50%; margin: 3vh auto 2vh auto; display: flex; align-items: center; justify-content: center; animation: scale-in 0.5s ease-out; }
-    @keyframes scale-in { 0% { transform: scale(0); } 100% { transform: scale(1); } }
-</style>
-"""
-
-# ==========================================
-# 9. POPUP MODAL GENERATION
+# 7. POPUP MODAL GENERATION
 # ==========================================
 
+# --- THE NATIVE MOBILE CREDITS MODAL ---
+if st.session_state.show_credits:
+    with st.container():
+        st.markdown("<div id='modal-marker'></div>", unsafe_allow_html=True)
+        st.button("✖", key="cred_x", type="secondary", on_click=close_all_popups)
+           
+        st.markdown(f"<div style='color: white; font-size: {f_title}; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); margin-top: -1vh; text-align: center; margin-bottom: 3vh;'>{loc['team']}</div>", unsafe_allow_html=True)
+       
+        st.markdown("<span id='credits-grid'></span>", unsafe_allow_html=True)
+       
+        c1, c2 = st.columns([1, 3])
+        with c1:
+            # REMOVED use_container_width=True to stop Streamlit from squishing the image
+            if os.path.exists("khalid.png"):
+                st.image("khalid.png")
+            else:
+                st.image("https://via.placeholder.com/200/1C2128/D4AF37?text=KM")
+        with c2:
+            st.markdown(f"<div style='color: white; font-size: 3.6vw; font-weight: bold; line-height: 1.2;'>{loc['khalid']}</div>", unsafe_allow_html=True)
+           
+        c3, c4 = st.columns([1, 3])
+        with c3:
+            # REMOVED use_container_width=True
+            if os.path.exists("albaraa.png"):
+                st.image("albaraa.png")
+            else:
+                st.image("https://via.placeholder.com/200/1C2128/D4AF37?text=AY")
+        with c4:
+            st.markdown(f"<div style='color: white; font-size: 3.6vw; font-weight: bold; line-height: 1.2;'>{loc['albaraa']}</div>", unsafe_allow_html=True)
+
+
+# --- EXISTING MODALS ---
 if st.session_state.show_audit and st.session_state.area > 0:
-    st.markdown(modal_css, unsafe_allow_html=True)
     with st.container():
         st.markdown("<div id='modal-marker'></div>", unsafe_allow_html=True)
         st.button("✖", key="aud_x", type="secondary", on_click=close_all_popups)
@@ -507,7 +496,6 @@ if st.session_state.show_audit and st.session_state.area > 0:
         st.markdown(f"<hr style='border-color: #D4AF37; opacity: 0.3; margin: 2vh 0;'><div style='display:flex; justify-content:space-between;'><div><div style='color:#aaa; font-size:{f_lbl};'>{loc['cost']}</div><div style='color:white; font-size:{f_big}; font-weight:bold;'>{install_cost:,.0f} SAR</div></div><div><div style='color:#aaa; font-size:{f_lbl};'>{loc['payback']}</div><div style='color:white; font-size:{f_big}; font-weight:bold;'>{payback:.1f} {loc['years']}</div></div></div>", unsafe_allow_html=True)
 
 if st.session_state.show_service:
-    st.markdown(modal_css, unsafe_allow_html=True)
     with st.container():
         st.markdown("<div id='modal-marker'></div>", unsafe_allow_html=True)
 
